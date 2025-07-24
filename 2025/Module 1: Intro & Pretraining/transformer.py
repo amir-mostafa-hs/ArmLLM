@@ -6,8 +6,14 @@ import torch.nn as nn
 import torch.optim as optim
 from datasets import load_dataset
 from torch.utils.data import DataLoader
-from torchvision import transforms
+from torchvision.transforms import Compose, Normalize, Resize, ToTensor
 from transformers import AutoImageProcessor
+
+# Local Settings
+custom_cache_dir = "/content/new_hf_cache"
+os.makedirs(custom_cache_dir, exist_ok=True)
+os.environ["HF_DATASETS_CACHE"] = custom_cache_dir
+os.environ["DATASETS_VERBOSITY"] = "error"
 
 
 # Transformer implementation from scratch
@@ -160,55 +166,54 @@ class TransformerEncoder(nn.Module):
 
 # Data loading and preprocessing
 def load_and_preprocess_data():
-    os.makedirs("/content/hf_datasets_cache", exist_ok=True)
-    # Load the full dataset and split it
-    dataset = load_dataset(
-        "microsoft/cats_vs_dogs", split="train", cache_dir="/content/hf_datasets_cache"
-    )
-    dataset = dataset.shuffle(seed=42).select(range(1000))
+    try:
+        # Load dataset
+        dataset = load_dataset(
+            "microsoft/cats_vs_dogs",
+            split="train",
+            cache_dir=custom_cache_dir,
+            download_mode="force_redownload",
+        )
 
-    train_dataset = dataset.train_test_split(test_size=0.1)  # 10% for validation
+        # Select a small subset for quick testing
+        dataset = dataset.shuffle(seed=42).select(range(1000))
 
-    image_processor = AutoImageProcessor.from_pretrained(
-        "google/vit-base-patch16-224", use_fast=True
-    )
+        # Image processor with appropriate settings
+        image_processor = AutoImageProcessor.from_pretrained(
+            "google/vit-base-patch16-224", cache_dir=custom_cache_dir
+        )
 
-    def preprocess_batch(examples):
-        """Process a batch of images, skipping corrupted ones."""
-        pixel_values = []
-        labels = []
-
-        for i in range(len(examples["image"])):
+        # Image processing function
+        def process_example(example):
             try:
-                if examples["image"][i] is not None:
-                    inputs = image_processor(examples["image"][i], return_tensors="pt")
-                    pixel_values.append(inputs.pixel_values.squeeze(0))
-                    labels.append(examples["labels"][i])
+                inputs = image_processor(
+                    example["image"],
+                    return_tensors="pt",
+                    resize={"height": 224, "width": 224},
+                )
+                return {
+                    "pixel_values": inputs.pixel_values.squeeze(0),
+                    "label": example["labels"],
+                }
             except Exception as e:
-                # Skip corrupted images
-                print(f"Skipping corrupted image at index {i}: {e}")
-                continue
+                print(f"خطا در پردازش تصویر: {e}")
+                return None
 
-        return {"pixel_values": pixel_values, "label": labels}
+        # Process the dataset
+        dataset = dataset.map(
+            process_example,
+            remove_columns=["image", "labels"],
+            load_from_cache_file=False,
+        ).filter(lambda x: x["pixel_values"] is not None)
 
-    # Process datasets with batched processing
-    train_dataset["train"] = train_dataset["train"].map(
-        preprocess_batch,
-        remove_columns=["image", "labels"],
-        batched=True,
-        batch_size=100,
-    )
-    train_dataset["train"].set_format(type="torch", columns=["pixel_values", "label"])
+        # Split the dataset
+        split_dataset = dataset.train_test_split(test_size=0.1, seed=42)
+        return split_dataset["train"], split_dataset["test"]
 
-    train_dataset["test"] = train_dataset["test"].map(
-        preprocess_batch,
-        remove_columns=["image", "labels"],
-        batched=True,
-        batch_size=100,
-    )
-    train_dataset["test"].set_format(type="torch", columns=["pixel_values", "label"])
-
-    return train_dataset["train"], train_dataset["test"]
+    except Exception as e:
+        # Handle exceptions
+        print(f"Critical error in data loading: {e}")
+        raise
 
 
 def validate(model, dataloader, criterion, device):
@@ -261,9 +266,6 @@ def train(model, dataloader, criterion, optimizer, device):
 
 # Main function
 def main():
-    os.makedirs("/content/hf_datasets_cache", exist_ok=True)
-    os.environ["HF_HOME"] = "/content/hf_datasets_cache"
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Hyperparameters
@@ -274,16 +276,18 @@ def main():
     num_layers = 6
     d_ff = 1024
     num_classes = 2
-    batch_size = 32
+    batch_size = 16
     num_epochs = 10
     learning_rate = 0.0001
 
     # Load and preprocess data
-    train_data, validation_data = load_and_preprocess_data()
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    validation_loader = DataLoader(
-        validation_data, batch_size=batch_size, shuffle=False
-    )
+    try:
+        train_data, val_data = load_and_preprocess_data()
+        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_data, batch_size=batch_size)
+    except Exception as e:
+        print(f"Error in data preparation: {e}")
+        return
 
     # Initialize model
     model = TransformerEncoder(
