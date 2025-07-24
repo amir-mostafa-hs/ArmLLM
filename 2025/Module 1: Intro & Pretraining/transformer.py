@@ -105,7 +105,6 @@ class EncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
 
     def forward(self, x):
-        def forward(self, x):
         # Multi-head attention block with residual
         attn_output = self.attention(x, x, x)
         x = self.norm1(x + attn_output)
@@ -118,7 +117,9 @@ class EncoderLayer(nn.Module):
 
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, img_size, patch_size, d_model, num_heads, num_layers, d_ff, num_classes):
+    def __init__(
+        self, img_size, patch_size, d_model, num_heads, num_layers, d_ff, num_classes
+    ):
         super().__init__()
         self.patch_size = patch_size
         self.num_patches = (img_size // patch_size) ** 2
@@ -128,10 +129,9 @@ class TransformerEncoder(nn.Module):
         self.positional_encoding = PositionalEncoding(d_model, max_len=self.num_patches)
 
         # stack of encoder layers
-        self.encoder_layers = nn.ModuleList([
-            EncoderLayer(d_model, num_heads, d_ff)
-            for _ in range(num_layers)
-        ])
+        self.encoder_layers = nn.ModuleList(
+            [EncoderLayer(d_model, num_heads, d_ff) for _ in range(num_layers)]
+        )
 
         self.norm = nn.LayerNorm(d_model)
         self.fc = nn.Linear(d_model, num_classes)
@@ -139,21 +139,23 @@ class TransformerEncoder(nn.Module):
     def patchify(self, images):
         # images shape: [batch_size, channels, height, width]
         batch_size = images.shape[0]
-        patches = images.unfold(2, self.patch_size, self.patch_size).unfold(3, self.patch_size, self.patch_size)
+        patches = images.unfold(2, self.patch_size, self.patch_size).unfold(
+            3, self.patch_size, self.patch_size
+        )
         patches = patches.contiguous().view(batch_size, -1, self.patch_dim)
         return patches  # Shape: [batch_size, num_patches, patch_dim]
 
     def forward(self, x):
-        x = self.patchify(x)                          # [B, N_patches, patch_dim]
-        x = self.patch_embedding(x)                   # [B, N_patches, d_model]
-        x = self.positional_encoding(x)               # [B, N_patches, d_model]
+        x = self.patchify(x)  # [B, N_patches, patch_dim]
+        x = self.patch_embedding(x)  # [B, N_patches, d_model]
+        x = self.positional_encoding(x)  # [B, N_patches, d_model]
 
         for layer in self.encoder_layers:
-            x = layer(x)                              # [B, N_patches, d_model]
+            x = layer(x)  # [B, N_patches, d_model]
 
-        x = self.norm(x)                              # [B, N_patches, d_model]
-        x = x.mean(dim=1)                             # Global average pooling
-        return self.fc(x)                             # [B, num_classes]
+        x = self.norm(x)  # [B, N_patches, d_model]
+        x = x.mean(dim=1)  # Global average pooling
+        return self.fc(x)  # [B, num_classes]
 
 
 # Data loading and preprocessing
