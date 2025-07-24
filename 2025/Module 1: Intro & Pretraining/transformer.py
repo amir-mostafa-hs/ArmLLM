@@ -161,9 +161,9 @@ class TransformerEncoder(nn.Module):
 # Data loading and preprocessing
 def load_and_preprocess_data():
     # Load the full dataset and split it
-    dataset = load_dataset("microsoft/cats_vs_dogs", split="train[:1000]").shuffle(
-        seed=42
-    )
+    dataset = load_dataset("microsoft/cats_vs_dogs", split="train")
+    dataset = dataset.shuffle(seed=42).select(range(1000))
+
     train_dataset = dataset.train_test_split(test_size=0.1)  # 10% for validation
 
     image_processor = AutoImageProcessor.from_pretrained(
