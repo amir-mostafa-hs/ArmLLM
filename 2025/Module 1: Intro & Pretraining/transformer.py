@@ -88,53 +88,72 @@ class MultiHeadAttention(nn.Module):
 class PositionWiseFeedForward(nn.Module):
     def __init__(self, d_model, d_ff):
         super().__init__()
-        # TODO: Implement the feed-forward network
+        self.fc1 = nn.Linear(d_model, d_ff)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(d_ff, d_model)
 
     def forward(self, x):
-        # x shape: [batch_size, seq_len, d_model]
-        raise NotImplementedError
+        return self.fc2(self.relu(self.fc1(x)))
 
 
 class EncoderLayer(nn.Module):
     def __init__(self, d_model, num_heads, d_ff):
         super().__init__()
+        self.attention = MultiHeadAttention(d_model, num_heads)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.ffn = PositionWiseFeedForward(d_model, d_ff)
+        self.norm2 = nn.LayerNorm(d_model)
 
     def forward(self, x):
-        # x shape: [batch_size, seq_len, d_model]
-        raise NotImplementedError
-        # Shape: [batch_size, seq_len, d_model]
+        def forward(self, x):
+        # Multi-head attention block with residual
+        attn_output = self.attention(x, x, x)
+        x = self.norm1(x + attn_output)
+
+        # Feed-forward block with residual
+        ffn_output = self.ffn(x)
+        x = self.norm2(x + ffn_output)
+
+        return x  # Shape: [batch_size, seq_len, d_model]
 
 
 class TransformerEncoder(nn.Module):
-    def __init__(
-        self, img_size, patch_size, d_model, num_heads, num_layers, d_ff, num_classes
-    ):
+    def __init__(self, img_size, patch_size, d_model, num_heads, num_layers, d_ff, num_classes):
         super().__init__()
         self.patch_size = patch_size
         self.num_patches = (img_size // patch_size) ** 2
         self.patch_dim = 3 * patch_size * patch_size
 
         self.patch_embedding = nn.Linear(self.patch_dim, d_model)
+        self.positional_encoding = PositionalEncoding(d_model, max_len=self.num_patches)
+
+        # stack of encoder layers
+        self.encoder_layers = nn.ModuleList([
+            EncoderLayer(d_model, num_heads, d_ff)
+            for _ in range(num_layers)
+        ])
+
+        self.norm = nn.LayerNorm(d_model)
         self.fc = nn.Linear(d_model, num_classes)
 
     def patchify(self, images):
         # images shape: [batch_size, channels, height, width]
         batch_size = images.shape[0]
-        # patches shape: [batch_size, num_patches, patch_dim]
-        patches = images.unfold(2, self.patch_size, self.patch_size).unfold(
-            3, self.patch_size, self.patch_size
-        )
+        patches = images.unfold(2, self.patch_size, self.patch_size).unfold(3, self.patch_size, self.patch_size)
         patches = patches.contiguous().view(batch_size, -1, self.patch_dim)
         return patches  # Shape: [batch_size, num_patches, patch_dim]
 
     def forward(self, x):
-        # x shape: [batch_size, channels, height, width]
-        x = self.patchify(x)  # Shape: [batch_size, num_patches, patch_dim]
-        x = self.patch_embedding(x)  # Shape: [batch_size, num_patches, d_model]
-        # TODO: positional embedding, layers, norm,
-        raise NotImplementedError
-        x = x.mean(dim=1)  # Take the mean across patches
-        return self.fc(x)  # Shape: [batch_size, num_classes]
+        x = self.patchify(x)                          # [B, N_patches, patch_dim]
+        x = self.patch_embedding(x)                   # [B, N_patches, d_model]
+        x = self.positional_encoding(x)               # [B, N_patches, d_model]
+
+        for layer in self.encoder_layers:
+            x = layer(x)                              # [B, N_patches, d_model]
+
+        x = self.norm(x)                              # [B, N_patches, d_model]
+        x = x.mean(dim=1)                             # Global average pooling
+        return self.fc(x)                             # [B, num_classes]
 
 
 # Data loading and preprocessing
@@ -226,7 +245,7 @@ def main():
     num_heads = 8
     num_layers = 6
     d_ff = 1024
-    num_classes = 525
+    num_classes = 2
     batch_size = 32
     num_epochs = 10
     learning_rate = 0.0001
