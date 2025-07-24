@@ -167,16 +167,17 @@ class TransformerEncoder(nn.Module):
 # Data loading and preprocessing
 def load_and_preprocess_data():
     try:
-        # Load dataset
-        dataset = load_dataset(
-            "microsoft/cats_vs_dogs",
-            split="train",
-            cache_dir=custom_cache_dir,
-            download_mode="force_redownload",
+        # Load dataset and  Select a small subset for quick testing
+        dataset = (
+            load_dataset(
+                "microsoft/cats_vs_dogs",
+                split="train",
+                cache_dir=custom_cache_dir,
+                download_mode="force_redownload",
+            )
+            .shuffle(seed=42)
+            .select(range(1000))
         )
-
-        # Select a small subset for quick testing
-        dataset = dataset.shuffle(seed=42).select(range(1000))
 
         # Image processor with appropriate settings
         image_processor = AutoImageProcessor.from_pretrained(
@@ -192,11 +193,11 @@ def load_and_preprocess_data():
                     resize={"height": 224, "width": 224},
                 )
                 return {
-                    "pixel_values": inputs.pixel_values.squeeze(0),
+                    "pixel_values": inputs.pixel_values[0].numpy(),
                     "label": example["labels"],
                 }
             except Exception as e:
-                print(f"خطا در پردازش تصویر: {e}")
+                print(f"Error processing image: {e}")
                 return None
 
         # Process the dataset
@@ -204,11 +205,14 @@ def load_and_preprocess_data():
             process_example,
             remove_columns=["image", "labels"],
             load_from_cache_file=False,
-        ).filter(lambda x: x["pixel_values"] is not None)
+        ).filter(lambda x: x is not None)
 
         # Split the dataset
         split_dataset = dataset.train_test_split(test_size=0.1, seed=42)
-        return split_dataset["train"], split_dataset["test"]
+        train_data = split_dataset["train"].with_format("torch")
+        val_data = split_dataset["test"].with_format("torch")
+
+        return train_data, val_data
 
     except Exception as e:
         # Handle exceptions
@@ -221,21 +225,23 @@ def validate(model, dataloader, criterion, device):
     total = 0
     correct = 0
     total_loss = 0
+    total_correct, total_samples = 0, 0
 
     with torch.no_grad():
         for batch in dataloader:
-            inputs, labels = batch["pixel_values"].to(device), batch["label"].to(device)
+            inputs = batch["pixel_values"].to(device)
+            labels = batch["label"].to(device)
+
             outputs = model(inputs)
             loss = criterion(outputs, labels)
+
             total_loss += loss.item()
+            total_correct += (outputs.argmax(1) == labels).sum().item()
+            total_samples += labels.size(0)
 
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-    accuracy = 100 * correct / total
-    average_loss = total_loss / len(dataloader)
-    print(f"Validation Loss: {average_loss:.3f}, Accuracy: {accuracy:.2f}%")
+    avg_loss = total_loss / len(dataloader)
+    accuracy = 100 * total_correct / total_samples
+    print(f"Validation Loss: {avg_loss:.4f} | Accuracy: {accuracy:.2f}%")
 
 
 # Training function
@@ -244,9 +250,12 @@ def train(model, dataloader, criterion, optimizer, device):
     total = 0
     correct = 0
     total_loss = 0
+    total_correct, total_samples = 0, 0
 
     for batch in dataloader:
-        inputs, labels = batch["pixel_values"].to(device), batch["label"].to(device)
+        inputs = batch["pixel_values"].to(device)
+        labels = batch["label"].to(device)
+
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = criterion(outputs, labels)
@@ -254,14 +263,12 @@ def train(model, dataloader, criterion, optimizer, device):
         optimizer.step()
 
         total_loss += loss.item()
+        total_correct += (outputs.argmax(1) == labels).sum().item()
+        total_samples += labels.size(0)
 
-        _, predicted = torch.max(outputs.data, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
-
-    accuracy = 100 * correct / total
-    average_loss = total_loss / len(dataloader)
-    print(f"Training loss: {average_loss:.3f}, Accuracy: {accuracy:.2f}%")
+    avg_loss = total_loss / len(dataloader)
+    accuracy = 100 * total_correct / total_samples
+    print(f"Train Loss: {avg_loss:.4f} | Accuracy: {accuracy:.2f}%")
 
 
 # Main function
