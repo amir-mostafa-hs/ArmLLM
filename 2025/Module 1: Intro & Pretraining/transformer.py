@@ -1,4 +1,5 @@
 import math
+import os
 
 import torch
 import torch.nn as nn
@@ -8,9 +9,8 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from transformers import AutoImageProcessor
 
+
 # Transformer implementation from scratch
-
-
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(PositionalEncoding, self).__init__()
@@ -160,8 +160,11 @@ class TransformerEncoder(nn.Module):
 
 # Data loading and preprocessing
 def load_and_preprocess_data():
+    os.makedirs("/content/hf_datasets_cache", exist_ok=True)
     # Load the full dataset and split it
-    dataset = load_dataset("microsoft/cats_vs_dogs", split="train")
+    dataset = load_dataset(
+        "microsoft/cats_vs_dogs", split="train", cache_dir="/content/hf_datasets_cache"
+    )
     dataset = dataset.shuffle(seed=42).select(range(1000))
 
     train_dataset = dataset.train_test_split(test_size=0.1)  # 10% for validation
@@ -258,6 +261,9 @@ def train(model, dataloader, criterion, optimizer, device):
 
 # Main function
 def main():
+    os.makedirs("/content/hf_datasets_cache", exist_ok=True)
+    os.environ["HF_HOME"] = "/content/hf_datasets_cache"
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Hyperparameters
